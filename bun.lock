@@ -13,9 +13,6 @@
         "@typescript/native-preview": "^7.0.0-dev.20260104.1",
         "eslint": "^9.39.2",
       },
-      "peerDependencies": {
-        "typescript": "^5",
-      },
     },
   },
   "packages": {
