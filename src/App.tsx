@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js'
 import type { ParagraphSegment } from './lib/types'
-import { createSignal, createMemo, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, Show } from 'solid-js'
 import {
   createDocxBytes,
   downloadFile,
@@ -13,6 +13,41 @@ import { extractParagraphSegments, replaceParagraphText } from './lib/xml-utils'
 
 type AppState = 'upload' | 'extracted' | 'ready-to-inject'
 
+const LANGUAGES = [
+  { code: 'hu', name: 'Hungarian' },
+  { code: 'ro', name: 'Romanian' },
+  { code: 'en', name: 'English' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+  { code: 'de', name: 'German' },
+  { code: 'it', name: 'Italian' },
+  { code: 'pt', name: 'Portuguese' },
+  { code: 'nl', name: 'Dutch' },
+  { code: 'pl', name: 'Polish' },
+  { code: 'ru', name: 'Russian' },
+  { code: 'zh', name: 'Chinese' },
+  { code: 'ja', name: 'Japanese' },
+  { code: 'ko', name: 'Korean' },
+]
+
+function getSavedLanguage() {
+  try {
+    return localStorage.getItem('translate-docx-lang') || 'hu'
+  }
+  catch {
+    return 'hu'
+  }
+}
+
+function saveLanguage(lang: string) {
+  try {
+    localStorage.setItem('translate-docx-lang', lang)
+  }
+  catch {
+    // ignore
+  }
+}
+
 const App: Component = () => {
   const [state, setState] = createSignal<AppState>('upload')
   const [file, setFile] = createSignal<File | null>(null)
@@ -22,10 +57,24 @@ const App: Component = () => {
   const [copied, setCopied] = createSignal(false)
   const [translatedText, setTranslatedText] = createSignal('')
   const [error, setError] = createSignal<string | null>(null)
-  
+  const [targetLang, setTargetLang] = createSignal(getSavedLanguage())
+
   // Page/range selection (0-indexed, end is exclusive)
   const [startParagraph, setStartParagraph] = createSignal(0)
   const [endParagraph, setEndParagraph] = createSignal(0)
+
+  const handleLanguageChange = (lang: string) => {
+    setTargetLang(lang)
+    saveLanguage(lang)
+  }
+
+  const getLanguageName = () => {
+    return LANGUAGES.find(l => l.code === targetLang())?.name || 'Hungarian'
+  }
+
+  const getPrompt = () => {
+    return `Translate the following text to ${getLanguageName()}. Keep the [pN] markers exactly as they are, only reply with the translated text, and keep all formating the same.`
+  }
 
   // Filtered segments based on range
   const filteredSegments = createMemo(() => {
@@ -93,7 +142,8 @@ const App: Component = () => {
 
   const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(formattedText())
+      const textToCopy = `${getPrompt()}\n\n${formattedText()}`
+      await navigator.clipboard.writeText(textToCopy)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
@@ -251,6 +301,22 @@ const App: Component = () => {
             </p>
           </div>
 
+          {/* Language selector */}
+          <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Translate to</label>
+            <select
+              value={targetLang()}
+              onChange={e => handleLanguageChange(e.currentTarget.value)}
+              class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            >
+              <For each={LANGUAGES}>
+                {lang => (
+                  <option value={lang.code}>{lang.name}</option>
+                )}
+              </For>
+            </select>
+          </div>
+
           <div
             class={`drop-zone relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer ${
               isDragging() ? 'dragging border-gray-900' : 'border-gray-300'
@@ -308,7 +374,7 @@ const App: Component = () => {
               <h2 class="font-semibold text-gray-900 mb-4">
                 Select paragraphs to translate
               </h2>
-              
+
               <div class="flex flex-wrap items-center gap-4 mb-4">
                 <div class="flex items-center gap-2">
                   <label class="text-sm text-gray-600">From</label>
@@ -320,7 +386,8 @@ const App: Component = () => {
                     onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) => {
                       const val = Number.parseInt(e.currentTarget.value) || 0
                       setStartParagraph(Math.max(0, Math.min(val, segments().length - 1)))
-                      if (val >= endParagraph()) setEndParagraph(val + 1)
+                      if (val >= endParagraph())
+                        setEndParagraph(val + 1)
                     }}
                     class="w-20 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                   />
@@ -340,7 +407,10 @@ const App: Component = () => {
                   />
                 </div>
                 <span class="text-sm text-gray-500">
-                  ({filteredSegments().length} paragraphs selected)
+                  (
+                  {filteredSegments().length}
+                  {' '}
+                  paragraphs selected)
                 </span>
               </div>
 
@@ -398,16 +468,11 @@ const App: Component = () => {
             {/* Step 2: Translate with LLM */}
             <div class="bg-white border border-gray-200 rounded-xl p-6">
               <h2 class="font-semibold text-gray-900 mb-2">
-                Step 2: Translate with your LLM
+                Step 2: Paste in your LLM
               </h2>
-              <p class="text-sm text-gray-500 mb-4">
-                Paste the text into an LLM and ask it to translate.
+              <p class="text-sm text-gray-500">
+                The clipboard contains the prompt and text. Just paste it into your LLM.
               </p>
-              <div class="p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
-                <strong>Example prompt:</strong>
-                {' '}
-                "Translate the following text to {'{language}'}. Keep the [pN] markers exactly as they are, only translate the text after each marker."
-              </div>
             </div>
 
             {/* Step 3: Paste translation */}
