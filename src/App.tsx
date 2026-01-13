@@ -1,6 +1,6 @@
 import type { Component } from 'solid-js'
 import type { ParagraphSegment } from './lib/types'
-import { createSignal, For, Show } from 'solid-js'
+import { createSignal, createMemo, For, Show } from 'solid-js'
 import {
   createDocxBytes,
   downloadFile,
@@ -22,13 +22,23 @@ const App: Component = () => {
   const [copied, setCopied] = createSignal(false)
   const [translatedText, setTranslatedText] = createSignal('')
   const [error, setError] = createSignal<string | null>(null)
+  
+  // Page/range selection (0-indexed, end is exclusive)
+  const [startParagraph, setStartParagraph] = createSignal(0)
+  const [endParagraph, setEndParagraph] = createSignal(0)
+
+  // Filtered segments based on range
+  const filteredSegments = createMemo(() => {
+    const all = segments()
+    return all.slice(startParagraph(), endParagraph())
+  })
 
   // Format segments as [pN]\ntext\n for LLM
-  const formattedText = () => {
-    return segments()
+  const formattedText = createMemo(() => {
+    return filteredSegments()
       .map(seg => `[${seg.id}]\n${seg.text}\n`)
       .join('\n')
-  }
+  })
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault()
@@ -71,6 +81,9 @@ const App: Component = () => {
       }
 
       setSegments(allSegments)
+      // Default to all paragraphs (0-indexed)
+      setStartParagraph(0)
+      setEndParagraph(allSegments.length)
       setState('extracted')
     }
     catch (err) {
@@ -175,6 +188,8 @@ const App: Component = () => {
     setTranslatedText('')
     setError(null)
     setCopied(false)
+    setStartParagraph(0)
+    setEndParagraph(0)
   }
 
   const formatFileSize = (bytes: number) => {
@@ -183,6 +198,17 @@ const App: Component = () => {
     if (bytes < 1024 * 1024)
       return `${(bytes / 1024).toFixed(1)} KB`
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  // Quick select buttons
+  const selectAll = () => {
+    setStartParagraph(0)
+    setEndParagraph(segments().length)
+  }
+
+  const selectFirst = (n: number) => {
+    setStartParagraph(0)
+    setEndParagraph(Math.min(n, segments().length))
   }
 
   return (
@@ -271,9 +297,79 @@ const App: Component = () => {
                     •
                     {segments().length}
                     {' '}
-                    paragraphs
+                    paragraphs total
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Paragraph range selector */}
+            <div class="bg-white border border-gray-200 rounded-xl p-6">
+              <h2 class="font-semibold text-gray-900 mb-4">
+                Select paragraphs to translate
+              </h2>
+              
+              <div class="flex flex-wrap items-center gap-4 mb-4">
+                <div class="flex items-center gap-2">
+                  <label class="text-sm text-gray-600">From</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={segments().length - 1}
+                    value={startParagraph()}
+                    onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) => {
+                      const val = Number.parseInt(e.currentTarget.value) || 0
+                      setStartParagraph(Math.max(0, Math.min(val, segments().length - 1)))
+                      if (val >= endParagraph()) setEndParagraph(val + 1)
+                    }}
+                    class="w-20 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  />
+                </div>
+                <div class="flex items-center gap-2">
+                  <label class="text-sm text-gray-600">to</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={segments().length}
+                    value={endParagraph()}
+                    onInput={(e: InputEvent & { currentTarget: HTMLInputElement }) => {
+                      const val = Number.parseInt(e.currentTarget.value) || 1
+                      setEndParagraph(Math.max(startParagraph() + 1, Math.min(val, segments().length)))
+                    }}
+                    class="w-20 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  />
+                </div>
+                <span class="text-sm text-gray-500">
+                  ({filteredSegments().length} paragraphs selected)
+                </span>
+              </div>
+
+              {/* Quick select buttons */}
+              <div class="flex flex-wrap gap-2">
+                <button
+                  onClick={selectAll}
+                  class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => selectFirst(10)}
+                  class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  First 10
+                </button>
+                <button
+                  onClick={() => selectFirst(25)}
+                  class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  First 25
+                </button>
+                <button
+                  onClick={() => selectFirst(50)}
+                  class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  First 50
+                </button>
               </div>
             </div>
 
